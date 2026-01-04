@@ -1,7 +1,18 @@
 import hashlib, json, os, subprocess, time
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Gallery Resolver API")
+
+# --------- CORS (fix frontend blocked issue) ----------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# -----------------------------------------------------
 
 CACHE_DIR = "cache"
 CACHE_TTL = 6 * 60 * 60  # 6 hours
@@ -16,15 +27,21 @@ def resolve_gallery(url: str):
     gid = hashlib.md5(url.encode()).hexdigest()[:16]
     cpath = cache_path(gid)
 
-    # Return cached if fresh
+    # Use cached if still fresh
     if os.path.exists(cpath):
         if time.time() - os.path.getmtime(cpath) < CACHE_TTL:
             return json.load(open(cpath))
 
-    # Resolve with gallery-dl -g
-    p = subprocess.run(["gallery-dl", "-g", url], capture_output=True, text=True, timeout=120)
+    # Resolve with gallery-dl (link-only mode)
+    p = subprocess.run(
+        ["gallery-dl", "-g", url],
+        capture_output=True,
+        text=True,
+        timeout=120
+    )
+
     if p.returncode != 0 or not p.stdout.strip():
-        raise HTTPException(400, "gallery-dl failed")
+        raise HTTPException(400, "gallery-dl failed to resolve")
 
     files = [x.strip() for x in p.stdout.splitlines() if x.strip()]
     data = {"gid": gid, "count": len(files), "images": files}
